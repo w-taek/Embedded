@@ -4,13 +4,16 @@
 #include <stdint.h>
 #include <math.h>
 
+#define DEBUG (1)
 #define DEBUG_PIN_CHECK (1)
 #define DEBUG_FUNC_CHECK (0)
 
 #define DHT_INNER_CNT   (2)
 #define MAXTIMINGS      (85)
-#define IN_DIFF_MAX     (2)
-#define OUT_DIFF_MAX    (2)
+#define IN_DIFF_MAX_T     (3)
+#define OUT_DIFF_MAX_T    (3)
+#define IN_DIFF_MAX_H     (10)
+#define OUT_DIFF_MAX_H    (10)
 
 struct dht_data
 {
@@ -35,12 +38,24 @@ int dht11_dat[5] = { 0, 0, 0, 0, 0 };
 
 struct dht_data dht_data_out;
 struct dht_data dht_datas_in[DHT_INNER_CNT];
-// struct dht_data dht_data_indoor_avg;
-// struct dht_data dht_data_indoor_avg;
-// struct dht_data dht_data_indoor_avg;
+struct dht_data dht_data_in_avg;
+struct dht_data dht_data_in_diff;
+struct dht_data dht_data_out_diff;
+struct dht_data dht_data_cali;
 
-static float calibration_cels = 0;
-static float calibration_humid = 0;
+struct dht_data *out = &dht_data_out;
+struct dht_data *in_1 = &dht_datas_in[0];
+struct dht_data *in_2 = &dht_datas_in[1];
+struct dht_data *in_avg = &dht_data_in_avg;
+struct dht_data *in_diff = &dht_data_in_diff;
+struct dht_data *out_diff = &dht_data_out_diff;
+struct dht_data *cali = &dht_data_cali;
+
+// struct dht_data dht_data_inner_01;
+// struct dht_data dht_data_inner_02;
+
+//unsigned short data_[5] = {0, 0, 0, 0, 0};
+//unsigned short data_[5] = {0, 0, 0, 0, 0};
 
 // functions
 short read_data_dht22(const unsigned short pin_num);
@@ -48,15 +63,17 @@ short get_dht22_data(const unsigned short pin_num, struct dht_data *data);
 short get_dht11_data(const unsigned short pin_num, struct dht_data *data);
 void calibrate(struct dht_data *data);
 void get_indoor_avg(struct dht_data *data_1, struct dht_data *data_2);
+void set_all_datas();
+void set_cali_val();
 
 int main(void)
 {
-    float innner_avg_cels;
-    float innner_avg_humid;
-    float inner_diff_cels;
-    float inner_diff_humid;
-    float outter_diff_cels;
-    float outter_diff_humid;
+    // float innner_avg_cels;
+    // float innner_avg_humid;
+    // float inner_diff_cels;
+    // float inner_diff_humid;
+    // float outter_diff_cels;
+    // float outter_diff_humid;
 
     // GPIO Initialization
 	if (wiringPiSetupGpio() == -1) { // BCM
@@ -79,45 +96,55 @@ int main(void)
         delay(1000);
         digitalWrite(led_y, LOW);
         printf("checking led_y complete!!\n\n");
+	}
 
-
+	if (DEBUG) {
         printf("\nchecking dht data init!!\n\n");
-		get_dht22_data(dht22_12, &dht_data_out);
-		while (dht_datas_in[0].valid == 0) {
-			get_dht11_data(dht11_35, &dht_datas_in[0]);
+		get_dht22_data(dht22_12, out);
+		while (in_1->valid == 0) {
+			get_dht11_data(dht11_35, in_1);
 			delay(2000);
 		}
-		while (dht_datas_in[1].valid == 0) {
-			get_dht11_data(dht11_37, &dht_datas_in[1]);
+		while (in_2->valid == 0) {
+			get_dht11_data(dht11_37, in_2);
 			delay(2000);
 		}
 
-		innner_avg_cels = (dht_datas_in[0].celsius + dht_datas_in[1].celsius) / 2;
-        innner_avg_humid = (dht_datas_in[0].humidity + dht_datas_in[1].humidity) / 2;
-        inner_diff_cels = abs(dht_datas_in[0].celsius - dht_datas_in[1].celsius);
-        inner_diff_humid = abs(dht_datas_in[0].humidity - dht_datas_in[1].humidity);
-        outter_diff_cels = abs(dht_data_out.celsius - dht_data_out.celsius);
-        outter_diff_humid = abs(dht_data_out.humidity - dht_data_out.humidity);
+		set_all_datas();
         
         printf("++----------------------init-------------------------++\n");
         printf("||   DHT #no   ||    Temperature    |    Humidity    ||\n");
         printf("||-------------||-------------------|----------------||\n");
-        printf("||  DHT22_out  ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_data_out.celsius, dht_data_out.humidity);
-        printf("||  DHT11_in_1 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_datas_in[0].celsius, dht_datas_in[0].humidity);
-        printf("||  DHT11_in_2 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_datas_in[1].celsius, dht_datas_in[1].humidity);
-        printf("||  DHT_in_avg ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", innner_avg_cels, innner_avg_humid);
+        printf("||  DHT22_out  ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", out->celsius, out->humidity);
+        printf("||  DHT11_in_1 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_1->celsius, in_1->humidity);
+        printf("||  DHT11_in_2 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_2->celsius, in_2->humidity);
+        printf("||  DHT_in_avg ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_avg->celsius, in_avg->humidity);
         printf("||-------------||-------------------|----------------||\n");
-        printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", inner_diff_cels, inner_diff_humid);
+        printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_diff->celsius, in_diff->humidity);
         printf("||-------------||-------------------|----------------||\n");
-        printf("|| DHT_out_diff||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", outter_diff_cels, outter_diff_humid);
+        printf("|| DHT_out_diff||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", out_diff->celsius, out_diff->humidity);
         printf("++---------------------------------------------------++\n\n\n");
 		
 		printf("\nsynchronizing innner sensors...\n\n");
-		printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n\n\n", inner_diff_cels, inner_diff_humid);
-		calibration_cels = dht_datas_in[1].celsius - dht_datas_in[0].celsius;
-		calibration_humid = dht_datas_in[1].humidity - dht_datas_in[0].humidity;
+		printf("||-------------||-------------------|----------------||\n");
+        printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_diff->celsius, in_diff->humidity);
+        printf("||-------------||-------------------|----------------||\n");
 
-    }
+		set_cali_val();
+    } else {
+		get_dht22_data(dht22_12, out);
+		while (in_1->valid == 0) {
+			get_dht11_data(dht11_35, in_1);
+			delay(2000);
+		}
+		while (in_2->valid == 0) {
+			get_dht11_data(dht11_37, in_2);
+			delay(2000);
+		}
+
+		set_all_datas();
+		set_cali_val();
+	}
 
     while (1) {
 		get_dht22_data(dht22_12, &dht_data_out);
@@ -126,42 +153,45 @@ int main(void)
 		get_dht11_data(dht11_37, &dht_datas_in[1]);
 		delay(2000);
 		calibrate(&dht_datas_in[1]);
-        // dht_data_outter = get_dht22_data(dht22_12);
-        // dht_datas_inner[0] = get_dht11_data(dht11_35);
-        // delay(2000);
-        // dht_datas_inner[1] = get_dht11_data(dht11_37);
-        // delay(2000);
-		// for (int i = 0; i < DHT_INNER_CNT; ++i) {
-        //     dht_datas_inner[i] = get_dht11_data(dht11_pins[i]);
-        // }
 
-        innner_avg_cels = (dht_datas_in[0].celsius + dht_datas_in[1].celsius) / 2;
-        innner_avg_humid = (dht_datas_in[0].humidity + dht_datas_in[1].humidity) / 2;
-        inner_diff_cels = abs(dht_datas_in[0].celsius - dht_datas_in[1].celsius);
-        inner_diff_humid = abs(dht_datas_in[0].humidity - dht_datas_in[1].humidity);
-        outter_diff_cels = abs(dht_data_out.celsius - dht_data_out.celsius);
-        outter_diff_humid = abs(dht_data_out.humidity - dht_data_out.humidity);
+		set_all_datas();
         
         printf("++---------------------------------------------------++\n");
         printf("||   DHT #no   ||    Temperature    |    Humidity    ||\n");
         printf("||-------------||-------------------|----------------||\n");
-        printf("||  DHT22_out  ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_data_out.celsius, dht_data_out.humidity);
-        printf("||  DHT11_in   ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_datas_in[0].celsius, dht_datas_in[0].humidity);
-        printf("||  DHT11_in   ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", dht_datas_in[1].celsius, dht_datas_in[1].humidity);
-        printf("||  DHT_in_avg ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", innner_avg_cels, innner_avg_humid);
+        printf("||  DHT22_out  ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", out->celsius, out->humidity);
+        printf("||  DHT11_in_1 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_1->celsius, in_1->humidity);
+        printf("||  DHT11_in_2 ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_2->celsius, in_2->humidity);
+        printf("||  DHT_in_avg ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_avg->celsius, in_avg->humidity);
         printf("||-------------||-------------------|----------------||\n");
-        printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", inner_diff_cels, inner_diff_humid);
+        printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_diff->celsius, in_diff->humidity);
         printf("||-------------||-------------------|----------------||\n");
-        printf("|| DHT_out_diff||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", outter_diff_cels, outter_diff_humid);
+        printf("|| DHT_out_diff||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", out_diff->celsius, out_diff->humidity);
         printf("++---------------------------------------------------++\n\n\n");
 
-        if (innner_avg_cels > IN_DIFF_MAX) {
+        if (in_diff->celsius > IN_DIFF_MAX_T || in_diff->humidity > IN_DIFF_MAX_H) {
+			if (DEBUG) {
+				printf("++---------------------------------------------------++\n");
+				printf("||            indoor difference is greater           ||\n");
+				printf("||                  tmeporary led red                ||\n");
+				printf("||-------------||-------------------|----------------||\n");
+				printf("|| DHT_in_diff ||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", in_diff->celsius, in_diff->humidity);
+				printf("||-------------||-------------------|----------------||\n");
+			}
             digitalWrite(led_r, HIGH);
         } else {
             digitalWrite(led_r, LOW);
         }
 
-        if (outter_diff_cels > OUT_DIFF_MAX) {
+        if (out_diff->celsius > IN_DIFF_MAX_T || out_diff->humidity > IN_DIFF_MAX_H) {
+			if (DEBUG) {
+				printf("++---------------------------------------------------++\n");
+				printf("||            outdoor difference is greater          ||\n");
+				printf("||                tmeporary led yellow               ||\n");
+				printf("||-------------||-------------------|----------------||\n");
+        		printf("|| DHT_out_diff||  TEMP: %6.2f *C  | HUMI: %6.2f %% ||\n", out_diff->celsius, out_diff->humidity);
+				printf("||-------------||-------------------|----------------||\n");
+			}
             digitalWrite(led_y, HIGH);
         } else {
             digitalWrite(led_y, LOW);
@@ -384,15 +414,38 @@ short get_dht11_data(const unsigned short pin_num, struct dht_data *data)
 	}
 }
 
-void calibrate(struct dht_data *data)
+void set_cali_val()
 {
-	data->celsius -= calibration_cels;
-	data->humidity -= calibration_humid;
+	if (cali->valid == 0) {
+		cali->celsius = in_2->celsius - in_1->celsius;
+		cali->humidity = in_2->humidity - in_1->humidity;
+		cali->valid = 1;
+	} else {
+		if (DEBUG) {
+			printf("\n\n*** Already set calibration value!! ***\n\n");
+		}
+	}
 }
 
-// void get_dht_inner_avg(struct dht_data *p_data)
-// {
-//     for(int i = 0; i < DHT_INNER_CNT; ++i) {
-//         p_data->
-//     }
-// }
+void calibrate(struct dht_data *data)
+{
+	if (cali->valid == 1) {
+		data->celsius -= cali->celsius;
+		data->humidity -= cali->humidity;
+	} else {
+		if (DEBUG) {
+			printf("\n\n*** The calibration hasn't progressed yet!! ***\n\n");
+		}
+	}
+}
+
+void set_all_datas()
+{
+	in_avg->celsius = (in_1->celsius + in_2->celsius) / 2;
+	in_avg->humidity = (in_1->humidity + in_2->humidity) / 2;
+	in_diff->celsius = abs(in_1->celsius - in_2->celsius);
+	in_diff->humidity = abs(in_1->humidity - in_2->humidity);
+	out_diff->celsius = abs(in_avg->celsius - out->celsius);
+	out_diff->humidity = abs(in_avg->humidity - out->humidity);
+}
+
